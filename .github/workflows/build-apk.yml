@@ -13,6 +13,10 @@ jobs:
           node-version: 20.19.4
       - name: Install dependencies
         run: npm install
+      - name: Prepare launcher icon
+        run: |
+          mkdir -p assets
+          convert assets/haj-rezayi-icon.svg assets/haj-rezayi-icon.png
       - name: Validate Expo project
         run: npx expo-doctor
       - name: Generate Android project
