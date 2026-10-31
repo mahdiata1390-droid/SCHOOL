@@ -298,7 +298,7 @@ function SchoolApp() {
           renderItem={({item})=><Pressable onPress={()=>selectClass(item.id)} onLongPress={()=>removeClass(item)} style={[styles.classChip,{backgroundColor:item.id===selectedClassId?colors.primary:colors.card,borderColor:item.id===selectedClassId?colors.primary:colors.line}]}>
             <Text style={[styles.classChipText,{color:item.id===selectedClassId?"#FFF":colors.text}]}>{item.name}</Text>
             <Text style={[styles.classChipCount,{color:item.id===selectedClassId?"#FFFFFFB8":colors.muted}]}>{item.id===selectedClassId?students.length:"کلاس"}</Text>
-          </Pressable>)}
+          </Pressable>}
         />
 
         <View style={[styles.hero,{backgroundColor:colors.card,borderColor:colors.line}]}>
