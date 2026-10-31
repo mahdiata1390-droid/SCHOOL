@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<rect x="40" y="40" width="944" height="944" rx="210" fill="#22406E"/>
+<rect x="92" y="92" width="840" height="840" rx="170" fill="#F5F0E0"/>
+<path d="M180 390 512 185 844 390 809 390 512 220 215 390Z" fill="#E14C3F"/>
+<rect x="215" y="360" width="594" height="430" rx="45" fill="#FAF8EF"/>
+<g fill="#DED8C7">
+<rect x="240" y="450" width="60" height="285" rx="18"/><rect x="360" y="450" width="60" height="285" rx="18"/><rect x="482" y="450" width="60" height="285" rx="18"/><rect x="604" y="450" width="60" height="285" rx="18"/><rect x="724" y="450" width="60" height="285" rx="18"/>
+</g>
+<rect x="445" y="555" width="134" height="235" rx="22" fill="#405367"/>
+<circle cx="562" cy="672" r="7" fill="#EBC35F"/>
+<g fill="#5291B4" stroke="#F5F8FA" stroke-width="8">
+<rect x="300" y="450" width="95" height="105" rx="15"/><rect x="629" y="450" width="95" height="105" rx="15"/>
+</g>
+<g stroke="#F5F8FA" stroke-width="8"><path d="M347 450v105M300 502h95M676 450v105M629 502h95"/></g>
+<path d="M512 220V125" stroke="#464646" stroke-width="10"/>
+<path d="M512 130 625 155 512 180Z" fill="#BE3430"/>
+<rect x="410" y="780" width="204" height="45" rx="15" fill="#D2CBBB"/>
+<rect x="375" y="820" width="274" height="40" rx="15" fill="#C4BDAE"/>
+</svg>
