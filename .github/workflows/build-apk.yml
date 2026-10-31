@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -13,10 +13,15 @@ jobs:
           node-version: 20.19.4
       - name: Install dependencies
         run: npm install
+      - name: Install icon conversion tool
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y imagemagick
       - name: Prepare launcher icon
         run: |
           mkdir -p assets
-          convert assets/haj-rezayi-icon.svg assets/haj-rezayi-icon.png
+          convert -background none -density 192 assets/haj-rezayi-icon.svg -resize 1024x1024 assets/haj-rezayi-icon.png
+          file assets/haj-rezayi-icon.png
       - name: Validate Expo project
         run: npx expo-doctor
       - name: Generate Android project
