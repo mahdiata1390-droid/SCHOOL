@@ -11,8 +11,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20.19.0
-          cache: npm
-      - run: npm install
+      - name: Install dependencies
+        run: npm install
       - name: Validate Expo project
         run: npx expo-doctor
       - name: Generate Android project
@@ -23,6 +23,10 @@ jobs:
           java-version: "17"
           cache: gradle
       - uses: android-actions/setup-android@v3
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
       - name: Build release APK
         working-directory: android
         run: ./gradlew :app:assembleRelease --no-daemon
