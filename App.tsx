@@ -154,9 +154,9 @@ function SchoolApp() {
   const [tab,setTab] = useState<"students"|"history">("students");
   const [loading,setLoading] = useState(true);
 
-  const load = useCallback(async()=>{
+  const load = useCallback(async(requestedClassId?:number|null)=>{
     const cls = await db.getAllAsync<SchoolClass>("SELECT * FROM classes ORDER BY id ASC");
-    let active = selectedClassId;
+    let active = requestedClassId ?? selectedClassId;
     if (!active || !cls.some(x=>x.id===active)) active = cls[0]?.id ?? null;
     const [s,h] = await Promise.all([
       active ? db.getAllAsync<Student>("SELECT * FROM students WHERE class_id=? ORDER BY points DESC, name COLLATE NOCASE ASC", active) : Promise.resolve([] as Student[]),
@@ -188,7 +188,7 @@ function SchoolApp() {
       setClassName(""); setClassModal(false);
       if(created) setSelectedClassId(created.id);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      await load();
+      await load(created?.id ?? null);
     }catch{ Alert.alert("خطا","ساخت کلاس انجام نشد."); }
   };
 
