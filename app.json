@@ -1,0 +1,1 @@
+{"expo":{"name":"School","slug":"school","version":"1.0.0","orientation":"portrait","userInterfaceStyle":"automatic","android":{"package":"com.school.teacher","versionCode":1,"adaptiveIcon":{"backgroundColor":"#111827"}},"plugins":["expo-sqlite"]}}
