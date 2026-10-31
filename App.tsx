@@ -23,7 +23,8 @@ import Storage from "expo-sqlite/kv-store";
 import { SQLiteProvider, useSQLiteContext } from "expo-sqlite";
 import { StatusBar } from "expo-status-bar";
 
-type Student = { id:number; name:string; points:number; created_at:string };
+type SchoolClass = { id:number; name:string; created_at:string };
+type Student = { id:number; name:string; points:number; created_at:string; class_id:number|null };
 type History = { id:number; student_id:number; delta:number; points_after:number; created_at:string };
 
 const themes = {
@@ -38,6 +39,11 @@ if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental
 async function initDb(db:any) {
   await db.execAsync(`
     PRAGMA journal_mode = WAL;
+    CREATE TABLE IF NOT EXISTS classes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
     CREATE TABLE IF NOT EXISTS students (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -53,6 +59,14 @@ async function initDb(db:any) {
     );
     CREATE INDEX IF NOT EXISTS idx_history_student ON point_history(student_id);
   `);
+  const columns = await db.getAllAsync<any>(`PRAGMA table_info(students)`);
+  if (!columns.some((x:any)=>x.name === "class_id")) {
+    await db.execAsync(`ALTER TABLE students ADD COLUMN class_id INTEGER`);
+  }
+  const classCount = await db.getFirstAsync<any>(`SELECT COUNT(*) AS count FROM classes`);
+  if (!Number(classCount?.count)) await db.runAsync(`INSERT INTO classes(name) VALUES(?)`, "کلاس من");
+  const defaultClass = await db.getFirstAsync<SchoolClass>(`SELECT * FROM classes ORDER BY id LIMIT 1`);
+  if (defaultClass) await db.runAsync(`UPDATE students SET class_id=? WHERE class_id IS NULL`, defaultClass.id);
 }
 
 function FloatingOrb({ color, size, top, right, delay }: {color:string;size:number;top:number;right:number;delay:number}) {
@@ -126,33 +140,75 @@ function SchoolApp() {
   const [themeMode,setThemeMode] = useState<"system"|"light"|"dark">("system");
   const isDark = themeMode==="dark" || (themeMode==="system" && systemScheme==="dark");
   const colors = themes[isDark?"dark":"light"];
+  const [classes,setClasses] = useState<SchoolClass[]>([]);
+  const [selectedClassId,setSelectedClassId] = useState<number|null>(null);
   const [students,setStudents] = useState<Student[]>([]);
   const [history,setHistory] = useState<History[]>([]);
   const [modal,setModal] = useState(false);
+  const [classModal,setClassModal] = useState(false);
   const [settings,setSettings] = useState(false);
   const [name,setName] = useState("");
+  const [className,setClassName] = useState("");
   const [query,setQuery] = useState("");
   const [busy,setBusy] = useState<number|null>(null);
   const [tab,setTab] = useState<"students"|"history">("students");
   const [loading,setLoading] = useState(true);
 
   const load = useCallback(async()=>{
+    const cls = await db.getAllAsync<SchoolClass>("SELECT * FROM classes ORDER BY id ASC");
+    let active = selectedClassId;
+    if (!active || !cls.some(x=>x.id===active)) active = cls[0]?.id ?? null;
     const [s,h] = await Promise.all([
-      db.getAllAsync<Student>("SELECT * FROM students ORDER BY points DESC, name COLLATE NOCASE ASC"),
-      db.getAllAsync<History>("SELECT * FROM point_history ORDER BY id DESC LIMIT 80"),
+      active ? db.getAllAsync<Student>("SELECT * FROM students WHERE class_id=? ORDER BY points DESC, name COLLATE NOCASE ASC", active) : Promise.resolve([] as Student[]),
+      active ? db.getAllAsync<History>("SELECT h.* FROM point_history h INNER JOIN students s ON s.id=h.student_id WHERE s.class_id=? ORDER BY h.id DESC LIMIT 80", active) : Promise.resolve([] as History[]),
     ]);
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setStudents(s); setHistory(h); setLoading(false);
-  },[db]);
+    setClasses(cls); setSelectedClassId(active); setStudents(s); setHistory(h); setLoading(false);
+  },[db,selectedClassId]);
 
   useEffect(()=>{ load(); Storage.getItem("school.theme").then(v=>{if(v==="light"||v==="dark"||v==="system")setThemeMode(v);}); },[load]);
 
+  const currentClass = classes.find(x=>x.id===selectedClassId);
   const filtered = useMemo(()=>students.filter(s=>s.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())),[students,query]);
   const total = students.length;
   const average = total ? Math.round(students.reduce((a,s)=>a+s.points,0)/total) : 0;
   const leader = students[0];
   const positiveCount = students.filter(s=>s.points>0).length;
   const maxPoints = Math.max(1,...students.map(s=>s.points));
+
+  const selectClass = (id:number)=>{ setSelectedClassId(id); setTab("students"); setQuery(""); };
+
+  const addClass = async()=>{
+    const n=className.trim().replace(/\s+/g," ");
+    if(!n){ Alert.alert("نام ناقص","نام کلاس را وارد کن؛ مثلاً 9/1."); return; }
+    if(classes.some(x=>x.name.trim().toLocaleLowerCase()===n.toLocaleLowerCase())){ Alert.alert("کلاس تکراری","این کلاس قبلاً ساخته شده."); return; }
+    try{
+      await db.runAsync("INSERT INTO classes(name) VALUES(?)",n);
+      const created=await db.getFirstAsync<SchoolClass>("SELECT * FROM classes WHERE name=? ORDER BY id DESC LIMIT 1",n);
+      setClassName(""); setClassModal(false);
+      if(created) setSelectedClassId(created.id);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      await load();
+    }catch{ Alert.alert("خطا","ساخت کلاس انجام نشد."); }
+  };
+
+  const removeClass = (cls:SchoolClass)=>{
+    if(classes.length<=1){ Alert.alert("آخرین کلاس","حداقل یک کلاس باید باقی بماند."); return; }
+    Alert.alert("حذف کلاس",`«${cls.name}» و همه دانش‌آموزان و سابقه‌های آن حذف شود؟`,[
+      {text:"لغو",style:"cancel"},
+      {text:"حذف",style:"destructive",onPress:async()=>{
+        try{
+          await db.withExclusiveTransactionAsync(async(txn)=>{
+            await txn.runAsync("DELETE FROM point_history WHERE student_id IN (SELECT id FROM students WHERE class_id=?)",cls.id);
+            await txn.runAsync("DELETE FROM students WHERE class_id=?",cls.id);
+            await txn.runAsync("DELETE FROM classes WHERE id=?",cls.id);
+          });
+          setSelectedClassId(null);
+          await load();
+        }catch{ Alert.alert("خطا","حذف کلاس انجام نشد."); }
+      }}
+    ]);
+  };
 
   const saveTheme = async(mode:"system"|"light"|"dark")=>{
     setThemeMode(mode); await Storage.setItem("school.theme",mode);
@@ -165,7 +221,8 @@ function SchoolApp() {
       Alert.alert("نام تکراری","این دانش‌آموز قبلاً در کلاس ثبت شده."); return;
     }
     try{
-      await db.runAsync("INSERT INTO students(name,points) VALUES(?,0)",n);
+      if(!selectedClassId){ Alert.alert("کلاس انتخاب نشده","اول یک کلاس انتخاب کن."); return; }
+      await db.runAsync("INSERT INTO students(name,points,class_id) VALUES(?,0,?)",n,selectedClassId);
       setName(""); setModal(false);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       await load();
@@ -218,14 +275,31 @@ function SchoolApp() {
         <View style={styles.header}>
           <View style={{flex:1}}>
             <View style={styles.brandLine}><View style={[styles.brandDot,{backgroundColor:colors.primary}]} /><Text style={[styles.eyebrow,{color:colors.primary}]}>SCHOOL • OFFLINE</Text></View>
-            <Text style={[styles.title,{color:colors.text}]}>کلاس من</Text>
-            <Text style={[styles.subtitle,{color:colors.muted}]}>مدیریت سریع امتیازها، بدون اینترنت.</Text>
+            <Text style={[styles.title,{color:colors.text}]}>{currentClass?.name || "کلاس‌ها"}</Text>
+            <Text style={[styles.subtitle,{color:colors.muted}]}>مدیریت سریع دانش‌آموزان و امتیازها، بدون اینترنت.</Text>
           </View>
           <View style={styles.headerButtons}>
             <Pressable onPress={()=>setSettings(true)} style={[styles.iconButton,{backgroundColor:colors.card,borderColor:colors.line}]}><Text style={{fontSize:19}}>⚙️</Text></Pressable>
+            <Pressable onPress={()=>setClassModal(true)} style={[styles.iconButton,{backgroundColor:colors.card,borderColor:colors.line}]}><Text style={{fontSize:19}}>🏫</Text></Pressable>
             <Pressable onPress={()=>setModal(true)} style={[styles.addTop,{backgroundColor:colors.primary}]}><Text style={styles.addTopText}>＋</Text></Pressable>
           </View>
         </View>
+
+        <View style={styles.classSectionHeader}>
+          <Text style={[styles.sectionTitle,{color:colors.text}]}>کلاس‌ها</Text>
+          <Pressable onPress={()=>setClassModal(true)}><Text style={[styles.seeAll,{color:colors.primary}]}>＋ ساخت کلاس</Text></Pressable>
+        </View>
+        <FlatList
+          data={classes}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          keyExtractor={x=>String(x.id)}
+          contentContainerStyle={{paddingBottom:10,gap:8}}
+          renderItem={({item})=><Pressable onPress={()=>selectClass(item.id)} onLongPress={()=>removeClass(item)} style={[styles.classChip,{backgroundColor:item.id===selectedClassId?colors.primary:colors.card,borderColor:item.id===selectedClassId?colors.primary:colors.line}]}>
+            <Text style={[styles.classChipText,{color:item.id===selectedClassId?"#FFF":colors.text}]}>{item.name}</Text>
+            <Text style={[styles.classChipCount,{color:item.id===selectedClassId?"#FFFFFFB8":colors.muted}]}>{item.id===selectedClassId?students.length:"کلاس"}</Text>
+          </Pressable>)}
+        />
 
         <View style={[styles.hero,{backgroundColor:colors.card,borderColor:colors.line}]}>
           <View style={{flex:1}}>
@@ -284,13 +358,29 @@ function SchoolApp() {
           />
         )}
 
+        <Modal visible={classModal} transparent animationType="slide" onRequestClose={()=>setClassModal(false)}>
+          <KeyboardAvoidingView behavior={Platform.OS==="ios"?"padding":undefined} style={styles.modalWrap}>
+            <Pressable style={styles.backdrop} onPress={()=>setClassModal(false)}/>
+            <View style={[styles.sheet,{backgroundColor:colors.card}]}>
+              <View style={styles.grabber}/>
+              <Text style={[styles.sheetTitle,{color:colors.text}]}>ساخت کلاس جدید</Text>
+              <Text style={[styles.sheetHint,{color:colors.muted}]}>مثلاً «9/1»، «9/2» یا «دهم تجربی». دانش‌آموزها جداگانه داخل هر کلاس ذخیره می‌شوند.</Text>
+              <TextInput autoFocus value={className} onChangeText={setClassName} placeholder="مثلاً: 9/1" placeholderTextColor={colors.muted} style={[styles.input,{backgroundColor:colors.bg,color:colors.text,borderColor:colors.line}]} onSubmitEditing={addClass}/>
+              <View style={styles.sheetButtons}>
+                <Pressable onPress={()=>setClassModal(false)} style={[styles.cancel,{borderColor:colors.line}]}><Text style={[styles.cancelText,{color:colors.text}]}>لغو</Text></Pressable>
+                <Pressable onPress={addClass} style={[styles.save,{backgroundColor:colors.primary}]}><Text style={styles.saveText}>ساخت کلاس</Text></Pressable>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
+
         <Modal visible={modal} transparent animationType="slide" onRequestClose={()=>setModal(false)}>
           <KeyboardAvoidingView behavior={Platform.OS==="ios"?"padding":undefined} style={styles.modalWrap}>
             <Pressable style={styles.backdrop} onPress={()=>setModal(false)}/>
             <View style={[styles.sheet,{backgroundColor:colors.card}]}>
               <View style={styles.grabber}/>
               <Text style={[styles.sheetTitle,{color:colors.text}]}>دانش‌آموز جدید</Text>
-              <Text style={[styles.sheetHint,{color:colors.muted}]}>امتیاز اولیه صفر است و همه‌چیز فقط روی همین گوشی ذخیره می‌شود.</Text>
+              <Text style={[styles.sheetHint,{color:colors.muted}]}>این دانش‌آموز به کلاس انتخاب‌شده اضافه می‌شود و اطلاعات فقط روی همین گوشی ذخیره می‌شود.</Text>
               <TextInput autoFocus value={name} onChangeText={setName} placeholder="مثلاً: علی رضایی" placeholderTextColor={colors.muted} style={[styles.input,{backgroundColor:colors.bg,color:colors.text,borderColor:colors.line}]} onSubmitEditing={add}/>
               <View style={styles.sheetButtons}>
                 <Pressable onPress={()=>setModal(false)} style={[styles.cancel,{borderColor:colors.line}]}><Text style={[styles.cancelText,{color:colors.text}]}>لغو</Text></Pressable>
@@ -346,6 +436,12 @@ const styles=StyleSheet.create({
   iconButton:{width:46,height:46,borderRadius:16,borderWidth:1,alignItems:"center",justifyContent:"center"},
   addTop:{width:46,height:46,borderRadius:16,alignItems:"center",justifyContent:"center"},
   addTopText:{color:"#FFF",fontSize:28,fontWeight:"300",marginTop:-2},
+  classSectionHeader:{flexDirection:"row",justifyContent:"space-between",alignItems:"center",marginBottom:7},
+  sectionTitle:{fontSize:14,fontWeight:"900"},
+  seeAll:{fontSize:11,fontWeight:"900"},
+  classChip:{minWidth:82,height:54,borderRadius:17,borderWidth:1,paddingHorizontal:12,alignItems:"center",justifyContent:"center"},
+  classChipText:{fontSize:12,fontWeight:"900"},
+  classChipCount:{fontSize:9,marginTop:2,fontWeight:"700"},
   hero:{minHeight:116,borderRadius:24,borderWidth:1,padding:18,flexDirection:"row",alignItems:"center",marginBottom:10},
   heroLabel:{fontSize:10,fontWeight:"700"},
   heroName:{fontSize:20,fontWeight:"900",marginTop:3},
